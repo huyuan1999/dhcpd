@@ -4,11 +4,37 @@ import (
 	"github.com/insomniacslk/dhcp/dhcpv4"
 	"github.com/insomniacslk/dhcp/dhcpv4/server4"
 	log "github.com/sirupsen/logrus"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
 	"net"
 )
 
+var db *gorm.DB
+
+func connectDB() {
+	var err error
+	dsn := "root:123456@tcp(192.168.3.50:3306)/dhcpd?charset=utf8&parseTime=True&loc=Local"
+	db, err = gorm.Open(mysql.New(mysql.Config{
+		DSN:                       dsn,
+		DefaultStringSize:         256,
+		DisableDatetimePrecision:  true,
+		DontSupportRenameIndex:    true,
+		DontSupportRenameColumn:   true,
+		SkipInitializeWithVersion: false,
+	}), &gorm.Config{})
+	if err != nil {
+		log.Fatalln("connect to database ", err.Error())
+	}
+}
+
 func init() {
 	log.SetReportCaller(true)
+	log.SetLevel(log.DebugLevel)
+	connectDB()
+	err := db.AutoMigrate(&Leases{}, &Options{}, &ACL{}, &Binding{}, &Reserves{})
+	if err != nil {
+		log.Fatalln("auto migrate ", err.Error())
+	}
 }
 
 func QueryOptions() Options {
