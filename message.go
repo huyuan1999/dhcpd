@@ -2,58 +2,13 @@ package main
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"github.com/insomniacslk/dhcp/dhcpv4"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	"math/rand"
 	"net"
-	"strings"
 	"time"
 )
-
-// 如果 addr 存在且 clientHW 相同则更新租约到期时间，并返回 false
-// 如果 addr 存在且 clientHW 不同则返回 true，表示此 ip 地址已经被分配
-// 如果 addr 不存在则表示此 ip 地址尚未被分配，将租约信息写入到数据库，并返回 false
-func checkLeases(addr string, clientHW string) bool {
-	var lease Leases
-	var options Options
-
-	if err := db.First(&options).Error; err != nil {
-		log.Errorln("first lease info ", err.Error())
-		return true
-	}
-
-	LeaseTime, err := time.ParseDuration(options.LeaseTime)
-	if err != nil {
-		log.Errorln("lease generation time error ", err.Error())
-		return true
-	}
-
-	if err := db.Where("assigned_addr = ? and client_hw_addr = ?", addr, clientHW).First(&lease).Error; err == nil {
-		lease.Expires = time.Now().Add(LeaseTime)
-		if err := db.Save(&lease).Error; err != nil {
-			log.Errorln("update lease expires ", err.Error())
-			return true
-		}
-		return false
-	}
-
-	// addr 存在且 clientHW 不同
-	if err := db.Where("assigned_addr = ?", addr).First(&lease).Error; err == nil {
-		return true
-	}
-
-	lease.Expires = time.Now().Add(LeaseTime)
-	lease.AssignedAddr = addr
-	lease.ClientHWAddr = clientHW
-	if err := db.Create(&lease).Error; err != nil {
-		log.Errorln("create lease info ", err.Error())
-		return true
-	}
-
-	return false
-}
 
 // 检查IP是否已被分配, 返回true表示已分配
 func checkIfTaken(ip net.IP, clientHW string) bool {
@@ -67,7 +22,11 @@ func checkIfTaken(ip net.IP, clientHW string) bool {
 	if err := db.Where("address = ?", addr).First(&reserve).Error; err == nil {
 		return true
 	}
-	return checkLeases(addr, clientHW)
+	ok, err := checkLeases(addr, clientHW)
+	if err != nil {
+		log.Errorf("Error checkIfTaken call checkLeases %s", err.Error())
+	}
+	return ok
 }
 
 // 从可分配的IP地址返回随机获取一个可用的IP地址
@@ -93,77 +52,104 @@ func assignedIP(rangeStart string, rangeEnd string, clientHW string) (net.IP, er
 		ipInt--
 		binary.BigEndian.PutUint32(ip, ipInt)
 		if ipInt < rangeStartInt {
-			return nil, errors.New("no new IP addresses available")
+			return nil, errors.New("no new ip addresses available")
 		}
 		taken = checkIfTaken(ip, clientHW)
 	}
 	return ip, nil
 }
 
+// 如果 addr 存在且 clientHW 相同则更新租约到期时间，并返回 false
+// 如果 addr 存在且 clientHW 不同则返回 true ，表示此 ip 地址已经被分配
+// 如果 addr 不存在则表示此 ip 地址尚未被分配，将租约信息写入到数据库，并返回 false
+func checkLeases(addr string, clientHW string) (ok bool, err error) {
+	var lease Leases
+
+	options := QueryOptions()
+
+	leaseTime, err := time.ParseDuration(options.LeaseTime)
+	if err != nil {
+		return true, errors.New(fmt.Sprintf("lease generation time %s", err.Error()))
+	}
+
+	// addr 存在且 clientHW 相同
+	if err := db.Where("assigned_addr = ? and client_hw_addr = ?", addr, clientHW).First(&lease).Error; err == nil {
+		lease.Expires = time.Now().Add(leaseTime)
+		if err := db.Save(&lease).Error; err != nil {
+			return true, errors.New(fmt.Sprintf("update lease expires %s", err.Error()))
+		}
+		return false, nil
+	}
+
+	// addr 存在且 clientHW 不同（表示此地址已经被分配给别的主机）
+	if err := db.Where("assigned_addr = ?", addr).First(&lease).Error; err == nil {
+		return true, nil
+	}
+
+	lease.Expires = time.Now().Add(leaseTime)
+	lease.AssignedAddr = addr
+	lease.ClientHWAddr = clientHW
+	if err := db.Create(&lease).Error; err != nil {
+		return true, errors.New(fmt.Sprintf("create lease info %s", err.Error()))
+	}
+	return false, nil
+}
+
 // 分配一个IP地址给客户端
 func createIP(rangeStart string, rangeEnd string, clientHW string) (net.IP, error) {
 	var bind Binding
 	var lease Leases
-	var options Options
+
 	// 检查这个客户端是否有绑定的IP地址
 	if err := db.Where("client_hw_addr = ?", clientHW).First(&bind).Error; err == nil {
-		if checkLeases(bind.BindAddr, clientHW) {
-			// 如果 checkLeases 返回 true 则表示绑定的 IP 地址被分配了给其他机器
+		ok, err := checkLeases(bind.BindAddr, clientHW)
+		if err != nil {
+			return nil, errors.Wrap(err, "checkLeases")
+		}
+		// 如果 checkLeases 返回 true, 且 err 为 nil 则表示绑定的 IP 地址被分配了给其他机器
+		if ok {
 			return nil, errors.New("the bound IP address is assigned to another machine")
 		}
 		return net.ParseIP(bind.BindAddr), nil
 	}
+
 	// 检查这个客户端是否已经分配了IP地址(如果已经分配则按照续约请求处理)
 	if err := db.Where("client_hw_addr = ?", clientHW).First(&lease).Error; err == nil {
-		if err := db.First(&options).Error; err != nil {
-			return nil, err
-		}
-
-		LeaseTime, err := time.ParseDuration(options.LeaseTime)
+		options := QueryOptions()
+		leaseTime, err := time.ParseDuration(options.LeaseTime)
 		if err != nil {
-			return nil, errors.New(fmt.Sprintf("lease generation time error ", err.Error()))
+			return nil, errors.New(fmt.Sprintf("lease generation time %s", err.Error()))
 		}
 
-		lease.Expires = time.Now().Add(LeaseTime)
+		lease.Expires = time.Now().Add(leaseTime)
 		if err := db.Save(&lease).Error; err != nil {
-			return nil, err
+			return nil, errors.New(fmt.Sprintf("update lease info %s", err.Error()))
 		}
 		return net.ParseIP(lease.AssignedAddr), nil
 	}
-
 	return assignedIP(rangeStart, rangeEnd, clientHW)
 }
 
-func random(min uint32, max uint32) uint32 {
-	return uint32(rand.Intn(int(max-min))) + min
-}
-
-// 将以逗号(,)分隔的IP列表转换为 []net.IP 对象
-func parse(addrs string) (ips []net.IP) {
-	s := strings.Split(addrs, ",")
-	for _, addr := range s {
-		ips = append(ips, net.ParseIP(strings.Trim(addr, " ")))
-	}
-	return ips
-}
-
-func Handler(conn net.PacketConn, peer net.Addr, msg *dhcpv4.DHCPv4, messageType dhcpv4.MessageType, options Options, fields log.Fields) error {
+func Handler(conn net.PacketConn, peer net.Addr, msg *dhcpv4.DHCPv4, messageType dhcpv4.MessageType, options *Options, fields log.Fields) {
 	// 设置租约时间
-	LeaseTime, err := time.ParseDuration(options.LeaseTime)
+	leaseTime, err := time.ParseDuration(options.LeaseTime)
 	if err != nil {
-		return errors.New(fmt.Sprintf("lease generation time error %s", err))
+		log.WithFields(fields).Errorf("Error lease generation time error %s", err.Error())
+		return
 	}
 
 	// 获取将要分配给客户端的地址
 	assignedIP, err := createIP(options.RangeStartIP, options.RangeEndIP, msg.ClientHWAddr.String())
 	if err != nil {
-		return err
+		log.WithFields(fields).Errorf("Error create IP assigned to client %s", err.Error())
+		return
 	}
 
 	// 解析子网掩码
 	subnetMask, err := getNetmask(options.NetMask)
 	if err != nil {
-		return err
+		log.WithFields(fields).Errorf("Error parsing subnet mask %s", err.Error())
+		return
 	}
 
 	router := parse(options.Router)
@@ -172,7 +158,7 @@ func Handler(conn net.PacketConn, peer net.Addr, msg *dhcpv4.DHCPv4, messageType
 	// 构建 dhcp 响应包
 	msg.UpdateOption(dhcpv4.OptMessageType(messageType))
 	msg.UpdateOption(dhcpv4.OptServerIdentifier(net.ParseIP(options.ServerIP)))
-	msg.UpdateOption(dhcpv4.OptIPAddressLeaseTime(LeaseTime))
+	msg.UpdateOption(dhcpv4.OptIPAddressLeaseTime(leaseTime))
 	msg.UpdateOption(dhcpv4.OptSubnetMask(subnetMask))
 	msg.UpdateOption(dhcpv4.OptRouter(router...))
 	msg.UpdateOption(dhcpv4.OptDNS(dns...))
@@ -182,8 +168,22 @@ func Handler(conn net.PacketConn, peer net.Addr, msg *dhcpv4.DHCPv4, messageType
 	msg.GatewayIPAddr = net.ParseIP(options.GatewayIP)
 
 	if _, err := conn.WriteTo(msg.ToBytes(), peer); err != nil {
-		log.WithFields(fields).Errorf("Write DHCP reply message %s", err.Error())
+		log.WithFields(fields).Errorf("Error Write DHCP reply message %s", err.Error())
 	}
+}
 
-	return nil
+func ReleaseHandler(msg *dhcpv4.DHCPv4, fields log.Fields) {
+	withReleaseAddress(msg, fields, "ReleaseHandler")
+}
+
+func DeclineHandler(msg *dhcpv4.DHCPv4, fields log.Fields) {
+	withReleaseAddress(msg, fields, "DeclineHandler")
+}
+
+func withReleaseAddress(msg *dhcpv4.DHCPv4, fields log.Fields, handlerName string) {
+	var leases Leases
+	clientHWAddr := msg.ClientHWAddr.String()
+	if err := db.Unscoped().Where("client_hw_addr = ?", clientHWAddr).Delete(&leases).Error; err != nil {
+		log.WithFields(fields).Warningf("%s release address %s", handlerName, err.Error())
+	}
 }

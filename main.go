@@ -7,11 +7,16 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"net"
+	"sync"
 )
 
-var db *gorm.DB
+var (
+	db               *gorm.DB
+	OptionsCache     *Options
+	OptionsCacheLock sync.Mutex
+)
 
-func connectDB() {
+func MustConnectDB() {
 	var err error
 	dsn := "root:123456@tcp(192.168.3.50:3306)/dhcpd?charset=utf8&parseTime=True&loc=Local"
 	db, err = gorm.Open(mysql.New(mysql.Config{
@@ -28,27 +33,35 @@ func connectDB() {
 }
 
 func init() {
+	MustConnectDB()
 	log.SetReportCaller(true)
 	log.SetLevel(log.DebugLevel)
-	connectDB()
 	err := db.AutoMigrate(&Leases{}, &Options{}, &ACL{}, &Binding{}, &Reserves{})
 	if err != nil {
-		log.Fatalln("auto migrate ", err.Error())
+		log.Fatalf("db auto migrate %s", err.Error())
 	}
 }
 
-func QueryOptions() Options {
-	return Options{
-		LeaseTime:    "1h",
-		ServerIP:     "10.1.1.1",
-		BootFileName: "pxelinux.0",
-		GatewayIP:    "10.1.1.1",
-		RangeStartIP: "10.1.1.100",
-		RangeEndIP:   "10.1.1.110",
-		NetMask:      "255.0.0.0",
-		Router:       "10.1.1.2, 10.1.1.3",
-		DNS:          "10.1.1.4, 10.1.1.5",
+// 从数据库查询配置, 如果查询出现错误则读取上次查询的结果
+// 如果上次查询的结果为 nil 则退出程序并输出相关日志
+func QueryOptions() *Options {
+	var options Options
+
+	if err := db.First(&options).Error; err != nil {
+		log.Errorf("QueryOptions %s", err.Error())
+		if OptionsCache != nil {
+			return OptionsCache
+		}
+		log.Fatalf("QueryOptions %s and OptionsCache is nil", err.Error())
 	}
+	OptionsCacheLock.Lock()
+	OptionsCache = &options
+	OptionsCacheLock.Unlock()
+	return &options
+}
+
+func acl(clientHW string) bool {
+	return false
 }
 
 func handler(conn net.PacketConn, peer net.Addr, msg *dhcpv4.DHCPv4) {
@@ -59,20 +72,29 @@ func handler(conn net.PacketConn, peer net.Addr, msg *dhcpv4.DHCPv4) {
 		"message_type":   msg.MessageType(),
 	}
 
+	if acl(msg.ClientHWAddr.String()) {
+		log.WithFields(fields).Infoln("acl rule mismatch")
+		return
+	}
+
 	reply, err := dhcpv4.NewReplyFromRequest(msg)
 	if err != nil {
-		log.WithFields(fields).Errorf("NewReplyFromRequest %s", err.Error())
+		log.WithFields(fields).Errorf("New reply from request %s", err.Error())
 	}
+
 	options := QueryOptions()
+
 	switch msg.MessageType() {
 	case dhcpv4.MessageTypeDiscover:
-		if err := Handler(conn, peer, reply, dhcpv4.MessageTypeOffer, options, fields); err != nil {
-			log.WithFields(fields).Errorf("Generate offer reply message %s", err.Error())
-		}
+		Handler(conn, peer, reply, dhcpv4.MessageTypeOffer, options, fields)
 	case dhcpv4.MessageTypeRequest:
-		if err := Handler(conn, peer, reply, dhcpv4.MessageTypeAck, options, fields); err != nil {
-			log.WithFields(fields).Errorf("Generate ack reply message %s", err.Error())
-		}
+		Handler(conn, peer, reply, dhcpv4.MessageTypeAck, options, fields)
+	case dhcpv4.MessageTypeDecline:
+		DeclineHandler(reply, fields)
+	case dhcpv4.MessageTypeRelease:
+		ReleaseHandler(reply, fields)
+	default:
+		log.WithFields(fields).Infoln("An unknown request was received")
 	}
 }
 
