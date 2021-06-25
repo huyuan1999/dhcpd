@@ -21,14 +21,14 @@ type Options struct {
 
 // 租约信息
 type Leases struct {
-	ClientHWAddr  string `gorm:"primarykey"`
-	AssignedAddr  string `gorm:"unique"`
-	Expires       time.Time
+	ClientHWAddr string `gorm:"primarykey"`
+	AssignedAddr string `gorm:"unique"`
+	Expires      time.Time
 }
 
 // 允许或者拒绝的客户端
 type ACL struct {
-	ClientHWAddr string
+	ClientHWAddr string `gorm:"primarykey"`
 	Action       string
 }
 

@@ -3,18 +3,35 @@ package main
 import (
 	"github.com/insomniacslk/dhcp/dhcpv4"
 	"github.com/insomniacslk/dhcp/dhcpv4/server4"
+	"github.com/robfig/cron/v3"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 	"net"
-	"sync"
+	"time"
 )
 
 var (
-	db               *gorm.DB
-	OptionsCache     *Options
-	OptionsCacheLock sync.Mutex
+	db *gorm.DB
 )
+
+func DeleteExpiredLease() {
+	c := cron.New()
+	_, err := c.AddFunc("* * * * *", func() {
+		options := QueryOptions()
+		leaseTime, err := time.ParseDuration(options.LeaseTime)
+		if err != nil {
+			log.Fatalf("Error delete expired lease lease generation time %s", err.Error())
+			return
+		}
+		db.Unscoped().Where("unix_timestamp(expires) < ?", time.Now().Add(leaseTime).Unix()).Delete(&Leases{})
+	})
+	if err != nil {
+		log.Fatalf("Error init delete expired lease cron job %s", err.Error())
+	}
+	c.Start()
+}
 
 func MustConnectDB() {
 	var err error
@@ -24,11 +41,18 @@ func MustConnectDB() {
 		DefaultStringSize:         256,
 		DisableDatetimePrecision:  true,
 		DontSupportRenameIndex:    true,
-		DontSupportRenameColumn:   true,
 		SkipInitializeWithVersion: false,
-	}), &gorm.Config{})
+	}), &gorm.Config{Logger: logger.Default.LogMode(logger.Info),})
 	if err != nil {
 		log.Fatalln("connect to database ", err.Error())
+		return
+	}
+	sqlDB, err := db.DB()
+	if err == nil {
+		sqlDB.SetMaxIdleConns(10)
+		sqlDB.SetMaxOpenConns(100)
+		sqlDB.SetConnMaxLifetime(time.Hour)
+		return
 	}
 }
 
@@ -42,63 +66,86 @@ func init() {
 	}
 }
 
-// 从数据库查询配置, 如果查询出现错误则读取上次查询的结果
-// 如果上次查询的结果为 nil 则退出程序并输出相关日志
-func QueryOptions() *Options {
-	var options Options
-
-	if err := db.First(&options).Error; err != nil {
-		log.Errorf("QueryOptions %s", err.Error())
-		if OptionsCache != nil {
-			return OptionsCache
+func search(s []ACL, clientHW string) bool {
+	for _, item := range s {
+		if item.ClientHWAddr == clientHW {
+			return true
 		}
-		log.Fatalf("QueryOptions %s and OptionsCache is nil", err.Error())
 	}
-	OptionsCacheLock.Lock()
-	OptionsCache = &options
-	OptionsCacheLock.Unlock()
-	return &options
-}
-
-func acl(clientHW string) bool {
 	return false
 }
 
+func acl(clientHW string, sign log.Fields) bool {
+	var acls []ACL
+	options := QueryOptions()
+	// 是否打开 ACL 控制
+	if !options.ACL {
+		return false
+	}
+
+	switch options.ACLAction {
+	case "allow":
+		// 如果查询数据库发送错误则直接返回 true (禁止为此客户端分配IP)
+		if err := db.Where("client_hw_addr = ? and action = ?", clientHW, "allow").Find(&acls).Error; err != nil {
+			log.WithFields(sign).Errorf("Error query acl %s", err.Error())
+			return true
+		}
+		if search(acls, clientHW) {
+			return false
+		}
+		return true
+	case "deny":
+		// 如果查询数据库发送错误则直接返回 true (禁止为此客户端分配IP)
+		if err := db.Where("client_hw_addr = ? and action = ?", clientHW, "deny").Find(&acls).Error; err != nil {
+			log.WithFields(sign).Errorf("Error query acl %s", err.Error())
+			return true
+		}
+		if search(acls, clientHW) {
+			return true
+		}
+		return false
+	default:
+		log.WithFields(sign).Errorf("Error unknown acl action")
+		return true
+	}
+}
+
 func handler(conn net.PacketConn, peer net.Addr, msg *dhcpv4.DHCPv4) {
-	fields := log.Fields{
+	sign := log.Fields{
 		"client_hw_addr": msg.ClientHWAddr,
 		"transaction_id": msg.TransactionID,
 		"hw_type":        msg.HWType,
 		"message_type":   msg.MessageType(),
 	}
 
-	if acl(msg.ClientHWAddr.String()) {
-		log.WithFields(fields).Infoln("acl rule mismatch")
+	// 返回 true 则表示禁止为此客户端分配IP地址
+	if acl(msg.ClientHWAddr.String(), sign) {
+		log.WithFields(sign).Infoln("acl rule mismatch")
 		return
 	}
 
 	reply, err := dhcpv4.NewReplyFromRequest(msg)
 	if err != nil {
-		log.WithFields(fields).Errorf("New reply from request %s", err.Error())
+		log.WithFields(sign).Errorf("New reply from request %s", err.Error())
 	}
-
-	options := QueryOptions()
 
 	switch msg.MessageType() {
 	case dhcpv4.MessageTypeDiscover:
-		Handler(conn, peer, reply, dhcpv4.MessageTypeOffer, options, fields)
+		NewHandler(conn, peer, reply, dhcpv4.MessageTypeOffer, sign).OfferHandler()
 	case dhcpv4.MessageTypeRequest:
-		Handler(conn, peer, reply, dhcpv4.MessageTypeAck, options, fields)
+		NewHandler(conn, peer, reply, dhcpv4.MessageTypeAck, sign).AckHandler()
 	case dhcpv4.MessageTypeDecline:
-		DeclineHandler(reply, fields)
+		NewHandler(conn, peer, reply, dhcpv4.MessageTypeDecline, sign).DeclineHandler()
 	case dhcpv4.MessageTypeRelease:
-		ReleaseHandler(reply, fields)
+		NewHandler(conn, peer, reply, dhcpv4.MessageTypeRelease, sign).ReleaseHandler()
 	default:
-		log.WithFields(fields).Infoln("An unknown request was received")
+		log.WithFields(sign).Infoln("An unknown request was received")
 	}
 }
 
 func main() {
+	go DeleteExpiredLease()
+
 	laddr := net.UDPAddr{
 		IP:   net.ParseIP("0.0.0.0"),
 		Port: 67,
