@@ -1,0 +1,460 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "为 DHCP 服务器提供的简单的 restful api",
+        "title": "DHCP 动态配置 API",
+        "contact": {
+            "email": "2803660215@qq.com"
+        },
+        "license": {
+            "name": "Apache 2.0",
+            "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
+        },
+        "version": "2.2"
+    },
+    "paths": {
+        "/api/v1/del/acl/": {
+            "delete": {
+                "description": "删除匹配的 acl 规则",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "删除匹配的 acl 规则",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "通过 mac 地址匹配需要删除的 acl 规则",
+                        "name": "mac",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/restful.ResMsg"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/del/bind/": {
+            "delete": {
+                "description": "删除匹配的 mac 地址绑定规则",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "删除匹配的 mac 地址绑定规则",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "通过 mac 地址匹配需要删除的绑定规则(mac 或者 ip 至少指定一项)",
+                        "name": "mac",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "通过 ip 地址匹配需要删除的绑定规则(mac 或者 ip 至少指定一项)",
+                        "name": "ip",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/restful.ResMsg"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/del/reserve/": {
+            "delete": {
+                "description": "删除保留 IP",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "删除保留 IP",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "通过 ip 地址删除保留 IP",
+                        "name": "ip",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/restful.ResMsg"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/inform/{tag}": {
+            "get": {
+                "description": "查询当前 DHCPD 配置信息",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "查询当前 DHCPD 配置信息",
+                "parameters": [
+                    {
+                        "enum": [
+                            "options",
+                            "leases",
+                            "acl",
+                            "bind",
+                            "reserve"
+                        ],
+                        "type": "string",
+                        "description": "配置项",
+                        "name": "tag",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/restful.ResMsg"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/set/acl/": {
+            "post": {
+                "description": "添加 acl 规则(acl规则必须在options中打开acl设置才能生效)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "添加 acl 规则",
+                "parameters": [
+                    {
+                        "description": "添加 acl 规则",
+                        "name": "message",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/restful.ACL"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/restful.ResMsg"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/set/bind/": {
+            "post": {
+                "description": "mac 地址绑定(已被分配的地址需要等待客户端释放之后才能绑定)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "添加 mac 地址绑定",
+                "parameters": [
+                    {
+                        "description": "添加 mac 地址绑定",
+                        "name": "message",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/restful.Binding"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/restful.ResMsg"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/set/options/": {
+            "post": {
+                "description": "添加 dhcpd 核心配置, 包括地址, 路由, DNS等的分配",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "添加 dhcpd 核心配置",
+                "parameters": [
+                    {
+                        "description": "添加 dhcpd 核心配置",
+                        "name": "message",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/restful.Options"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/restful.ResMsg"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/set/reserve/": {
+            "post": {
+                "description": "添加保留地址(已被分配的地址需要等待客户端释放之后才能被设置为保留地址)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "添加保留地址",
+                "parameters": [
+                    {
+                        "description": "添加保留地址",
+                        "name": "message",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/restful.Reserves"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/restful.ResMsg"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/update/acl/": {
+            "put": {
+                "description": "修改 acl 规则(acl规则必须在options中打开acl设置才能生效)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "修改 acl 规则",
+                "parameters": [
+                    {
+                        "description": "修改 acl 规则",
+                        "name": "message",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/restful.ACL"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/restful.ResMsg"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/update/bind/": {
+            "put": {
+                "description": "mac 地址绑定(已被分配的地址需要等待客户端释放之后才能绑定)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "修改 mac 地址绑定",
+                "parameters": [
+                    {
+                        "description": "修改 mac 地址绑定",
+                        "name": "message",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/restful.Binding"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/restful.ResMsg"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/update/options/": {
+            "put": {
+                "description": "修改 dhcpd 核心配置, 包括地址, 路由, DNS等的分配",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "修改 dhcpd 核心配置",
+                "parameters": [
+                    {
+                        "description": "修改 dhcpd 核心配置",
+                        "name": "message",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/restful.Options"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/restful.ResMsg"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "restful.ACL": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string"
+                },
+                "client_hw_addr": {
+                    "type": "string"
+                }
+            }
+        },
+        "restful.Binding": {
+            "type": "object",
+            "properties": {
+                "bind_addr": {
+                    "type": "string"
+                },
+                "client_hw_addr": {
+                    "type": "string"
+                }
+            }
+        },
+        "restful.Options": {
+            "type": "object",
+            "required": [
+                "acl",
+                "boot_file_name",
+                "dns",
+                "gateway_ip",
+                "lease_time",
+                "net_mask",
+                "range_end_ip",
+                "range_start_ip",
+                "router",
+                "server_ip"
+            ],
+            "properties": {
+                "acl": {
+                    "type": "boolean"
+                },
+                "acl_action": {
+                    "description": "当 ACLAction 为 allow 时默认的动作为 deny, 只有被匹配到的客户端才会分配地址\n当 ACLAction 为  deny 时默认的动作为 allow, 只有被匹配到的客户端才会被拒绝\nallow or deny",
+                    "type": "string"
+                },
+                "boot_file_name": {
+                    "type": "string"
+                },
+                "dns": {
+                    "type": "string"
+                },
+                "gateway_ip": {
+                    "type": "string"
+                },
+                "lease_time": {
+                    "type": "string"
+                },
+                "net_mask": {
+                    "type": "string"
+                },
+                "range_end_ip": {
+                    "type": "string"
+                },
+                "range_start_ip": {
+                    "type": "string"
+                },
+                "router": {
+                    "type": "string"
+                },
+                "server_ip": {
+                    "type": "string"
+                }
+            }
+        },
+        "restful.ResMsg": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {
+                    "type": "object"
+                },
+                "error": {
+                    "type": "object"
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "restful.Reserves": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string"
+                }
+            }
+        }
+    }
+}

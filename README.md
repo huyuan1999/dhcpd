@@ -1,31 +1,36 @@
-这是一个专门为pxe/ipxe装机实现的dhcp服务器，它可能不满足任何的标准。
-
-开发进度：开发中
-
-想要实现的功能：
-* dhcp 核心功能（包括分配IP，主机名，路由，网关，DNS等）
-* 基于restful api的动态配置
-* 基于数据库的mac地址绑定
-* ipxe 的支持
-
-目前完成的功能：
-* dhcp 核心功能（测试成功）
-* pxe 支持（测试成功）
-* 将租约信息存储到数据库中（测试成功）
-* 将配置信息存储到数据库中（测试成功）
-* 处理 Decline 请求（测试成功）
-* 处理 Release 请求（测试成功）
-* 编写续租请求相关操作（续租请求也是一个 request 请求，做好数据库相关 curd 工作即可）（测试成功）
-* 基于 acl 的黑白名单（测试成功）
-
-未完成任务：
-* ipxe 支持
-* restful API(包括动态配置, 状态管理等信息)
-
+这是一个专门为pxe装机实现的dhcp服务器，它可能不满足任何的标准
 
 部分代码来源：https://github.com/coredhcp/coredhcp
 
-动态配置的时候需要注意（动态配置函数中添加相关的控制逻辑）：
-* 保留的地址现在是不是已经被分配出去了，如果已经分配出去必须等待客户端释放之后才能够设置为保留地址
-* 绑定的地址现在是不是已经被分配出去了，如果已经分配出去必须等待客户端释放之后才能够设置为绑定地址
+#### 功能
+* dhcp 核心功能（包括分配IP，主机名，路由，网关，DNS等）
+* 基于restful api的动态配置
+* mac 地址绑定
+* 对 pxe 的支持
+* acl 黑白名单
+* 所有状态数据存储在数据库中（当前只支持mysql）
+* 基于 restful api 的动态配置
+* 基于 swagger 的 api 文档
 
+
+#### 部署
+* 操作系统: CentOS7
+* 数据库: MySQL5.7
+* go 1.16
+```bash
+# 初始化数据库
+$ mysql -uroot -p****** -e "CREATE DATABASE dhcpd2 DEFAULT CHARACTER SET utf8"
+$ mysql -uroot -p****** dhcpd < dhcpd.sql
+
+# 编译
+$ go build
+
+# 查看帮助信息
+$ ./dhcp --help
+
+# 启动 dhcpd 和 api
+$ ./dhcp --db-pass=******
+
+# 打开 swagger 文档
+http://127.0.0.1:8888/swagger/index.html
+```

@@ -1,0 +1,305 @@
+definitions:
+  restful.ACL:
+    properties:
+      action:
+        type: string
+      client_hw_addr:
+        type: string
+    type: object
+  restful.Binding:
+    properties:
+      bind_addr:
+        type: string
+      client_hw_addr:
+        type: string
+    type: object
+  restful.Options:
+    properties:
+      acl:
+        type: boolean
+      acl_action:
+        description: |-
+          当 ACLAction 为 allow 时默认的动作为 deny, 只有被匹配到的客户端才会分配地址
+          当 ACLAction 为  deny 时默认的动作为 allow, 只有被匹配到的客户端才会被拒绝
+          allow or deny
+        type: string
+      boot_file_name:
+        type: string
+      dns:
+        type: string
+      gateway_ip:
+        type: string
+      lease_time:
+        type: string
+      net_mask:
+        type: string
+      range_end_ip:
+        type: string
+      range_start_ip:
+        type: string
+      router:
+        type: string
+      server_ip:
+        type: string
+    required:
+    - acl
+    - boot_file_name
+    - dns
+    - gateway_ip
+    - lease_time
+    - net_mask
+    - range_end_ip
+    - range_start_ip
+    - router
+    - server_ip
+    type: object
+  restful.ResMsg:
+    properties:
+      code:
+        type: integer
+      data:
+        type: object
+      error:
+        type: object
+      success:
+        type: boolean
+    type: object
+  restful.Reserves:
+    properties:
+      address:
+        type: string
+    type: object
+info:
+  contact:
+    email: 2803660215@qq.com
+  description: 为 DHCP 服务器提供的简单的 restful api
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  title: DHCP 动态配置 API
+  version: "2.2"
+paths:
+  /api/v1/del/acl/:
+    delete:
+      consumes:
+      - application/json
+      description: 删除匹配的 acl 规则
+      parameters:
+      - description: 通过 mac 地址匹配需要删除的 acl 规则
+        in: query
+        name: mac
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/restful.ResMsg'
+      summary: 删除匹配的 acl 规则
+  /api/v1/del/bind/:
+    delete:
+      consumes:
+      - application/json
+      description: 删除匹配的 mac 地址绑定规则
+      parameters:
+      - description: 通过 mac 地址匹配需要删除的绑定规则(mac 或者 ip 至少指定一项)
+        in: query
+        name: mac
+        type: string
+      - description: 通过 ip 地址匹配需要删除的绑定规则(mac 或者 ip 至少指定一项)
+        in: query
+        name: ip
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/restful.ResMsg'
+      summary: 删除匹配的 mac 地址绑定规则
+  /api/v1/del/reserve/:
+    delete:
+      consumes:
+      - application/json
+      description: 删除保留 IP
+      parameters:
+      - description: 通过 ip 地址删除保留 IP
+        in: query
+        name: ip
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/restful.ResMsg'
+      summary: 删除保留 IP
+  /api/v1/inform/{tag}:
+    get:
+      consumes:
+      - application/json
+      description: 查询当前 DHCPD 配置信息
+      parameters:
+      - description: 配置项
+        enum:
+        - options
+        - leases
+        - acl
+        - bind
+        - reserve
+        in: path
+        name: tag
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/restful.ResMsg'
+      summary: 查询当前 DHCPD 配置信息
+  /api/v1/set/acl/:
+    post:
+      consumes:
+      - application/json
+      description: 添加 acl 规则(acl规则必须在options中打开acl设置才能生效)
+      parameters:
+      - description: 添加 acl 规则
+        in: body
+        name: message
+        required: true
+        schema:
+          $ref: '#/definitions/restful.ACL'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/restful.ResMsg'
+      summary: 添加 acl 规则
+  /api/v1/set/bind/:
+    post:
+      consumes:
+      - application/json
+      description: mac 地址绑定(已被分配的地址需要等待客户端释放之后才能绑定)
+      parameters:
+      - description: 添加 mac 地址绑定
+        in: body
+        name: message
+        required: true
+        schema:
+          $ref: '#/definitions/restful.Binding'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/restful.ResMsg'
+      summary: 添加 mac 地址绑定
+  /api/v1/set/options/:
+    post:
+      consumes:
+      - application/json
+      description: 添加 dhcpd 核心配置, 包括地址, 路由, DNS等的分配
+      parameters:
+      - description: 添加 dhcpd 核心配置
+        in: body
+        name: message
+        required: true
+        schema:
+          $ref: '#/definitions/restful.Options'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/restful.ResMsg'
+      summary: 添加 dhcpd 核心配置
+  /api/v1/set/reserve/:
+    post:
+      consumes:
+      - application/json
+      description: 添加保留地址(已被分配的地址需要等待客户端释放之后才能被设置为保留地址)
+      parameters:
+      - description: 添加保留地址
+        in: body
+        name: message
+        required: true
+        schema:
+          $ref: '#/definitions/restful.Reserves'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/restful.ResMsg'
+      summary: 添加保留地址
+  /api/v1/update/acl/:
+    put:
+      consumes:
+      - application/json
+      description: 修改 acl 规则(acl规则必须在options中打开acl设置才能生效)
+      parameters:
+      - description: 修改 acl 规则
+        in: body
+        name: message
+        required: true
+        schema:
+          $ref: '#/definitions/restful.ACL'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/restful.ResMsg'
+      summary: 修改 acl 规则
+  /api/v1/update/bind/:
+    put:
+      consumes:
+      - application/json
+      description: mac 地址绑定(已被分配的地址需要等待客户端释放之后才能绑定)
+      parameters:
+      - description: 修改 mac 地址绑定
+        in: body
+        name: message
+        required: true
+        schema:
+          $ref: '#/definitions/restful.Binding'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/restful.ResMsg'
+      summary: 修改 mac 地址绑定
+  /api/v1/update/options/:
+    put:
+      consumes:
+      - application/json
+      description: 修改 dhcpd 核心配置, 包括地址, 路由, DNS等的分配
+      parameters:
+      - description: 修改 dhcpd 核心配置
+        in: body
+        name: message
+        required: true
+        schema:
+          $ref: '#/definitions/restful.Options'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/restful.ResMsg'
+      summary: 修改 dhcpd 核心配置
+swagger: "2.0"
