@@ -14,14 +14,10 @@
 
 
 #### 部署
-* 操作系统: CentOS7
-* 数据库: MySQL5.7
+* 操作系统: CentOS 7.5
+* 数据库: MySQL 5.7
 * go 1.16
 ```bash
-# 初始化数据库
-$ mysql -uroot -p****** -e "CREATE DATABASE dhcpd2 DEFAULT CHARACTER SET utf8"
-$ mysql -uroot -p****** dhcpd < dhcpd.sql
-
 # 编译
 $ go build
 
@@ -29,7 +25,7 @@ $ go build
 $ ./dhcp --help
 
 # 启动 dhcpd 和 api
-$ ./dhcp --db-pass=******
+$ ./dhcp --db-pass=xxx --dhcpd-ifname=em1
 
 # 打开 swagger 文档
 http://127.0.0.1:8888/swagger/index.html

@@ -1,6 +1,7 @@
-package restful
+package api
 
 import (
+	"dhcp/models"
 	"dhcp/server"
 	"fmt"
 	"github.com/gin-gonic/gin"
@@ -76,7 +77,7 @@ func inform(c *gin.Context) {
 // @Router /api/v1/set/options/ [post]
 func setOptions(c *gin.Context) {
 	var resMsg ResMsg
-	var options server.Options
+	var options models.Options
 	if !verifyShouldBindJSON(c, &options) {
 		return
 	}
@@ -85,13 +86,13 @@ func setOptions(c *gin.Context) {
 		return
 	}
 
-	err := server.Db.First(&server.Options{}).Error
+	err := object.Db.First(&models.Options{}).Error
 	switch err {
 	case nil:
 		eMsg := "Error server is configured, please submit update request instead of create request"
 		respError(c, eMsg)
 	case gorm.ErrRecordNotFound:
-		if err := server.Db.Create(&options).Error; err != nil {
+		if err := object.Db.Create(&options).Error; err != nil {
 			eMsg := fmt.Sprintf("Error creating server configuration information %s", err.Error())
 			respError(c, eMsg)
 			return
@@ -111,7 +112,7 @@ func setOptions(c *gin.Context) {
 // @Router /api/v1/set/bind/ [post]
 func setBind(c *gin.Context) {
 	var resMsg ResMsg
-	var bind server.Binding
+	var bind models.Binding
 	if !verifyShouldBindJSON(c, &bind) {
 		return
 	}
@@ -120,7 +121,7 @@ func setBind(c *gin.Context) {
 		return
 	}
 
-	if err := server.Db.Create(&bind).Error; err != nil {
+	if err := object.Db.Create(&bind).Error; err != nil {
 		respError(c, err)
 		return
 	}
@@ -137,7 +138,7 @@ func setBind(c *gin.Context) {
 // @Router /api/v1/set/acl/ [post]
 func setACL(c *gin.Context) {
 	var resMsg ResMsg
-	var acl server.ACL
+	var acl models.ACL
 
 	if !verifyShouldBindJSON(c, &acl) {
 		return
@@ -147,7 +148,7 @@ func setACL(c *gin.Context) {
 		return
 	}
 
-	if err := server.Db.Create(&acl).Error; err != nil {
+	if err := object.Db.Create(&acl).Error; err != nil {
 		respError(c, err)
 		return
 	}
@@ -164,7 +165,7 @@ func setACL(c *gin.Context) {
 // @Router /api/v1/set/reserve/ [post]
 func setReserve(c *gin.Context) {
 	var resMsg ResMsg
-	var reserve server.Reserves
+	var reserve models.Reserves
 	if !verifyShouldBindJSON(c, &reserve) {
 		return
 	}
@@ -173,7 +174,7 @@ func setReserve(c *gin.Context) {
 		return
 	}
 
-	if err := server.Db.Create(&reserve).Error; err != nil {
+	if err := object.Db.Create(&reserve).Error; err != nil {
 		respError(c, err)
 		return
 	}
@@ -190,7 +191,7 @@ func setReserve(c *gin.Context) {
 // @Router /api/v1/update/options/ [put]
 func updateOptions(c *gin.Context) {
 	var resMsg ResMsg
-	var options server.Options
+	var options models.Options
 	if !verifyShouldBindJSON(c, &options) {
 		return
 	}
@@ -199,7 +200,7 @@ func updateOptions(c *gin.Context) {
 		return
 	}
 
-	if err := server.Db.Save(&options).Error; err != nil {
+	if err := object.Db.Save(&options).Error; err != nil {
 		respError(c, err.Error())
 		return
 	}
@@ -216,7 +217,7 @@ func updateOptions(c *gin.Context) {
 // @Router /api/v1/update/bind/ [put]
 func updateBind(c *gin.Context) {
 	var resMsg ResMsg
-	var bind server.Binding
+	var bind models.Binding
 	if !verifyShouldBindJSON(c, &bind) {
 		return
 	}
@@ -225,7 +226,7 @@ func updateBind(c *gin.Context) {
 		return
 	}
 
-	if err := server.Db.Save(&bind).Error; err != nil {
+	if err := object.Db.Save(&bind).Error; err != nil {
 		respError(c, err.Error())
 		return
 	}
@@ -241,7 +242,7 @@ func updateBind(c *gin.Context) {
 // @Router /api/v1/update/acl/ [put]
 func updateACL(c *gin.Context) {
 	var resMsg ResMsg
-	var acl server.ACL
+	var acl models.ACL
 	if !verifyShouldBindJSON(c, &acl) {
 		return
 	}
@@ -250,7 +251,7 @@ func updateACL(c *gin.Context) {
 		return
 	}
 
-	if err := server.Db.Save(&acl).Error; err != nil {
+	if err := object.Db.Save(&acl).Error; err != nil {
 		respError(c, err.Error())
 		return
 	}
@@ -276,7 +277,7 @@ func deleteBind(c *gin.Context) {
 	}
 
 	if net.ParseIP(ip) != nil && err == nil {
-		if err := server.Db.Unscoped().Where("client_hw_addr = ? and bind_addr = ?", mac, ip).Delete(&server.Binding{}).Error; err != nil {
+		if err := object.Db.Unscoped().Where("client_hw_addr = ? and bind_addr = ?", mac, ip).Delete(&models.Binding{}).Error; err != nil {
 			respError(c, err)
 			return
 		}
@@ -285,7 +286,7 @@ func deleteBind(c *gin.Context) {
 	}
 
 	if net.ParseIP(ip) != nil {
-		if err := server.Db.Unscoped().Where("bind_addr = ?", ip).Delete(&server.Binding{}).Error; err != nil {
+		if err := object.Db.Unscoped().Where("bind_addr = ?", ip).Delete(&models.Binding{}).Error; err != nil {
 			respError(c, err)
 			return
 		}
@@ -293,7 +294,7 @@ func deleteBind(c *gin.Context) {
 		return
 	}
 
-	if err := server.Db.Unscoped().Where("client_hw_addr = ?", mac).Delete(&server.Binding{}).Error; err != nil {
+	if err := object.Db.Unscoped().Where("client_hw_addr = ?", mac).Delete(&models.Binding{}).Error; err != nil {
 		respError(c, err)
 		return
 	}
@@ -315,7 +316,7 @@ func deleteACL(c *gin.Context) {
 		return
 	}
 
-	if err := server.Db.Unscoped().Where("client_hw_addr = ?", mac).Delete(&server.ACL{}).Error; err != nil {
+	if err := object.Db.Unscoped().Where("client_hw_addr = ?", mac).Delete(&models.ACL{}).Error; err != nil {
 		respError(c, err)
 		return
 	}
@@ -336,7 +337,7 @@ func deleteReserve(c *gin.Context) {
 		return
 	}
 
-	if err := server.Db.Unscoped().Where("address = ?", ip).Delete(&server.Reserves{}).Error; err != nil {
+	if err := object.Db.Unscoped().Where("address = ?", ip).Delete(&models.Reserves{}).Error; err != nil {
 		respError(c, err)
 		return
 	}

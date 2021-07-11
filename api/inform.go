@@ -1,14 +1,15 @@
-package restful
+package api
 
 import (
+	"dhcp/models"
 	"dhcp/server"
 )
 
 func aclReply(resMsg *ResMsg) {
-	var acl []server.ACL
+	var acl []models.ACL
 	options := server.QueryOptions()
 	if options.ACL {
-		if err := server.Db.Where("action = ?", options.ACLAction).Find(&acl).Error; err != nil {
+		if err := object.Db.Where("action = ?", options.ACLAction).Find(&acl).Error; err != nil {
 			resMsg.Error = err.Error()
 		}
 		resMsg.Success = true
@@ -17,8 +18,8 @@ func aclReply(resMsg *ResMsg) {
 }
 
 func leasesReply(resMsg *ResMsg) () {
-	var leases []server.Leases
-	if err := server.Db.Find(&leases).Error; err != nil {
+	var leases []models.Leases
+	if err := object.Db.Find(&leases).Error; err != nil {
 		resMsg.Error = err.Error()
 	}
 	resMsg.Success = true
@@ -26,8 +27,8 @@ func leasesReply(resMsg *ResMsg) () {
 }
 
 func bindReply(resMsg *ResMsg) {
-	var bind []server.Binding
-	if err := server.Db.Find(&bind).Error; err != nil {
+	var bind []models.Binding
+	if err := object.Db.Find(&bind).Error; err != nil {
 		resMsg.Error = err.Error()
 	}
 	resMsg.Success = true
@@ -35,11 +36,10 @@ func bindReply(resMsg *ResMsg) {
 }
 
 func reserveReply(resMsg *ResMsg) () {
-	var reserves []server.Reserves
-	if err := server.Db.Find(&reserves).Error; err != nil {
+	var reserves []models.Reserves
+	if err := object.Db.Find(&reserves).Error; err != nil {
 		resMsg.Error = err.Error()
 	}
 	resMsg.Success = true
 	resMsg.Data = reserves
 }
-

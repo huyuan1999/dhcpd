@@ -1,11 +1,17 @@
-package restful
+package api
 
 import (
-	_ "dhcp/restful/docs"
+	_ "dhcp/api/docs"
+	"dhcp/models"
+	"dhcp/server"
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
+	"gorm.io/gorm/logger"
+	"time"
 )
+
+var object *models.Object
 
 // @Title DHCP 动态配置 API
 // @Description 为 DHCP 服务器提供的简单的 restful api
@@ -16,7 +22,12 @@ import (
 // @License.url http://www.apache.org/licenses/LICENSE-2.0.html
 
 // @BasePath
-func API(socket string) {
+func API(socket string, d *server.DHCPDConfig, logLevel logger.LogLevel, connMaxLifetime time.Duration) {
+	object = models.MustConnectDB(d.DBUser, d.DBHost, d.DBPass, d.DBName, d.DBPort, logLevel, d.DBPoolMaxIdleConns, d.DBPoolMaxOpenConns, connMaxLifetime)
+	route(socket)
+}
+
+func route(socket string) {
 	r := gin.Default()
 	url := ginSwagger.URL("/swagger/doc.json")
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler, url))

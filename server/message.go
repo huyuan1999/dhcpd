@@ -1,6 +1,7 @@
 package server
 
 import (
+	"dhcp/models"
 	"encoding/binary"
 	"fmt"
 	"github.com/insomniacslk/dhcp/dhcpv4"
@@ -12,7 +13,7 @@ import (
 )
 
 var (
-	OptionsCache     *Options
+	OptionsCache     *models.Options
 	OptionsCacheLock sync.Mutex
 )
 
@@ -22,15 +23,14 @@ type Handler struct {
 	msg         *dhcpv4.DHCPv4
 	messageType dhcpv4.MessageType
 	sign        log.Fields
-	options     *Options
+	options     *models.Options
 }
 
 // 从数据库查询配置, 如果查询出现错误则读取上次查询的结果
 // 如果上次查询的结果为 nil 则退出程序并输出相关日志
-func QueryOptions() *Options {
-	var options Options
-
-	if err := db.First(&options).Error; err != nil {
+func QueryOptions() *models.Options {
+	var options models.Options
+	if err := object.Db.First(&options).Error; err != nil {
 		log.Errorf("QueryOptions %s", err.Error())
 		if OptionsCache != nil {
 			return OptionsCache
@@ -100,6 +100,8 @@ func (h *Handler) withReplyHandler() {
 	h.msg.ServerIPAddr = net.ParseIP(h.options.ServerIP)
 	h.msg.GatewayIPAddr = net.ParseIP(h.options.GatewayIP)
 
+	log.Error(h.msg)
+
 	if _, err := h.conn.WriteTo(h.msg.ToBytes(), h.peer); err != nil {
 		log.WithFields(h.sign).Errorf("Error Write DHCP reply message %s", err.Error())
 	}
@@ -107,11 +109,11 @@ func (h *Handler) withReplyHandler() {
 
 // 分配一个IP地址给客户端
 func (h *Handler) createIP(rangeStart string, rangeEnd string) (net.IP, error) {
-	var bind Binding
-	var lease Leases
+	var bind models.Binding
+	var lease models.Leases
 
 	// 检查这个客户端是否有绑定的IP地址
-	if err := db.Where("client_hw_addr = ?", h.msg.ClientHWAddr.String()).First(&bind).Error; err == nil {
+	if err := object.Db.Where("client_hw_addr = ?", h.msg.ClientHWAddr.String()).First(&bind).Error; err == nil {
 		// 如果 checkLeases 返回 true, 且 err 为 nil 则表示绑定的 IP 地址被分配了给其他机器
 		if h.checkLeases(bind.BindAddr) {
 			return nil, errors.New("the bound IP address is assigned to another machine")
@@ -120,7 +122,7 @@ func (h *Handler) createIP(rangeStart string, rangeEnd string) (net.IP, error) {
 	}
 
 	// 检查这个客户端是否已经分配了IP地址(如果已经分配则按照续约请求处理)
-	if err := db.Where("client_hw_addr = ?", h.msg.ClientHWAddr.String()).First(&lease).Error; err == nil {
+	if err := object.Db.Where("client_hw_addr = ?", h.msg.ClientHWAddr.String()).First(&lease).Error; err == nil {
 		options := QueryOptions()
 		leaseTime, err := time.ParseDuration(options.LeaseTime)
 		if err != nil {
@@ -128,7 +130,7 @@ func (h *Handler) createIP(rangeStart string, rangeEnd string) (net.IP, error) {
 		}
 
 		lease.Expires = time.Now().Add(leaseTime)
-		if err := db.Save(&lease).Error; err != nil {
+		if err := object.Db.Save(&lease).Error; err != nil {
 			return nil, errors.New(fmt.Sprintf("update lease info %s", err.Error()))
 		}
 		return net.ParseIP(lease.AssignedAddr), nil
@@ -140,7 +142,7 @@ func (h *Handler) createIP(rangeStart string, rangeEnd string) (net.IP, error) {
 // 如果 addr 存在且 clientHW 不同则返回 true ，表示此 ip 地址已经被分配
 // 如果 addr 不存在则表示此 ip 地址尚未被分配，将租约信息写入到数据库，并返回 false
 func (h *Handler) checkLeases(addr string) bool {
-	var lease Leases
+	var lease models.Leases
 
 	options := QueryOptions()
 
@@ -151,9 +153,9 @@ func (h *Handler) checkLeases(addr string) bool {
 	}
 
 	// addr 存在且 clientHW 相同
-	if err := db.Where("assigned_addr = ? and client_hw_addr = ?", addr, h.msg.ClientHWAddr.String()).First(&lease).Error; err == nil {
+	if err := object.Db.Where("assigned_addr = ? and client_hw_addr = ?", addr, h.msg.ClientHWAddr.String()).First(&lease).Error; err == nil {
 		lease.Expires = time.Now().Add(leaseTime)
-		if err := db.Save(&lease).Error; err != nil {
+		if err := object.Db.Save(&lease).Error; err != nil {
 			log.WithFields(h.sign).Errorf("Error update lease expires %s", err.Error())
 			return true
 		}
@@ -161,14 +163,14 @@ func (h *Handler) checkLeases(addr string) bool {
 	}
 
 	// addr 存在且 clientHW 不同，且expires值小于当前时间（表示此地址已经被分配给别的主机）
-	if err := db.Where("assigned_addr = ?", addr, time.Now().Unix()).First(&lease).Error; err == nil {
+	if err := object.Db.Where("assigned_addr = ?", addr, time.Now().Unix()).First(&lease).Error; err == nil {
 		return true
 	}
 
 	lease.Expires = time.Now().Add(leaseTime)
 	lease.AssignedAddr = addr
 	lease.ClientHWAddr = h.msg.ClientHWAddr.String()
-	if err := db.Create(&lease).Error; err != nil {
+	if err := object.Db.Create(&lease).Error; err != nil {
 		log.WithFields(h.sign).Errorf("Error create lease info %s", err.Error())
 		return true
 	}
@@ -177,14 +179,14 @@ func (h *Handler) checkLeases(addr string) bool {
 
 // 检查IP是否已被分配, 返回true表示已分配
 func (h *Handler) checkIfTaken(ip net.IP) bool {
-	var bind Binding
-	var reserve Reserves
+	var bind models.Binding
+	var reserve models.Reserves
 	addr := ip.String()
-	if err := db.Where("bind_addr = ?", addr).First(&bind).Error; err == nil {
+	if err := object.Db.Where("bind_addr = ?", addr).First(&bind).Error; err == nil {
 		return true
 	}
 
-	if err := db.Where("address = ?", addr).First(&reserve).Error; err == nil {
+	if err := object.Db.Where("address = ?", addr).First(&reserve).Error; err == nil {
 		return true
 	}
 
@@ -230,9 +232,9 @@ func (h *Handler) DeclineHandler() {
 }
 
 func (h *Handler) withReleaseAddress(handlerName string) {
-	var leases Leases
+	var leases models.Leases
 	clientHWAddr := h.msg.ClientHWAddr.String()
-	if err := db.Unscoped().Where("client_hw_addr = ?", clientHWAddr).Delete(&leases).Error; err != nil {
+	if err := object.Db.Unscoped().Where("client_hw_addr = ?", clientHWAddr).Delete(&leases).Error; err != nil {
 		log.WithFields(h.sign).Warningf("%s release address %s", handlerName, err.Error())
 	}
 }
